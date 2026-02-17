@@ -62,6 +62,8 @@ class ItemService:
         item = await self.item_repo.add(item)
         # Event-driven: send to queue instead of blocking on Elasticsearch
         index_item_task.delay(_item_to_doc(item))
+        # Reload with owner loaded to avoid lazy load in async context (MissingGreenlet)
+        item = await self.item_repo.get_by_id_with_owner(item.id)
         return _item_to_response(item)
 
     async def get_by_id(self, id: int, use_cache: bool = True) -> ItemWithOwnerResponse | None:

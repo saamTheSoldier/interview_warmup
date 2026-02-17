@@ -7,16 +7,17 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.db.session import DbSession
 from app.db.repositories.user_repository import UserRepository
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.schemas.user import UserCreate, UserResponse
 from app.core.security import hash_password, create_access_token, verify_password
+from app.core.dependencies import CurrentUserId
 
 router = APIRouter()
 
 
 class LoginRequest(BaseModel):
     email: str
-    password: str
+    password: str = Field(..., min_length=1, max_length=72)
 
 
 @router.post("/register", response_model=UserResponse)
@@ -50,4 +51,14 @@ async def login(session: DbSession, data: LoginRequest):
             detail="Invalid email or password",
         )
     token = create_access_token(user.id)
-    return {"access_token": token, "token_type": "bearer"}
+    return {"access_token": token, "token_type": "bearer", "user_id": user.id}
+
+
+@router.get("/me")
+async def me(session: DbSession, user_id: CurrentUserId):
+    """Return current user id and email (for UI to set owner_id)."""
+    repo = UserRepository(session)
+    user = await repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {"id": user.id, "email": user.email}

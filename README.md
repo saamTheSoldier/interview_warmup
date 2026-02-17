@@ -11,6 +11,8 @@ A complete, production-oriented FastAPI project that demonstrates the technologi
 - [Which Part Solves Which Challenge](#which-part-solves-which-challenge)
 - [Design Rationale: Why This Is a Good Design](#design-rationale-why-this-is-a-good-design)
 - [Quick Start](#quick-start)
+- [Mini UI & Seed Data](#mini-ui--seed-data)
+- [Run & Verify Each Component](#run--verify-each-component)
 - [API Overview](#api-overview)
 - [Running Tests](#running-tests)
 - [Monitoring](#monitoring)
@@ -172,6 +174,23 @@ Together, these choices support **scalability**, **maintainability**, **testabil
    pip install -r requirements.txt
    uvicorn app.main:app --reload
    ```
+
+---
+
+## Mini UI & Seed Data
+
+- **Minimal UI**: After starting the API, open **http://localhost:8000** in a browser. You get a simple page to register/login, list items, add items, and search. This uses the same API and helps you see PostgreSQL, Redis, Celery, and Elasticsearch in action.
+- **Seed script (bulk data)**: With the API running, run:
+  ```bash
+  python scripts/seed_data.py
+  ```
+  Default: 30 users and 25 items per user (750 items). Options: `--users 100 --items-per-user 30`. Items are created via the API, so Celery tasks are enqueued; run a Celery worker to index them in Elasticsearch and see search results.
+
+---
+
+## Run & Verify Each Component
+
+For step-by-step instructions on bringing up every service and **checking that each part works** (PostgreSQL, Redis, RabbitMQ, Elasticsearch, API, Celery worker, UI, search), see **[docs/RUN_AND_VERIFY.md](docs/RUN_AND_VERIFY.md)**. It includes a short verification table per component and a checklist before a demo or interview.
 
 ---
 

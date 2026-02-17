@@ -5,8 +5,12 @@ Challenge: Mount routes, middleware (Prometheus), startup events (DB/ES init).
 
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from prometheus_client import make_asgi_app
 
 from app.config import get_settings
@@ -16,8 +20,12 @@ from app.search.elasticsearch_client import ensure_items_index
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: ensure Elasticsearch index. Shutdown: cleanup if needed."""
-    await ensure_items_index()
+    """Startup: ensure Elasticsearch index when ES is available. Shutdown: cleanup if needed."""
+    try:
+        await ensure_items_index()
+    except Exception:
+        # Run without Docker: ES may be down; app still works (search returns empty)
+        pass
     yield
     # Optional: close Redis/ES clients
 
@@ -45,6 +53,15 @@ def create_app() -> FastAPI:
     app.mount("/metrics", metrics_app)
 
     app.include_router(api_router, prefix="/api")
+
+    # Minimal UI (static)
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+        @app.get("/")
+        async def root():
+            return FileResponse(static_dir / "index.html")
 
     return app
 

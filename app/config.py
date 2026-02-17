@@ -32,7 +32,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Elasticsearch (search and analytics)
+    # Use https:// and optional user:pass for ES 8 with security enabled, e.g. https://elastic:yourpassword@localhost:9200
     elasticsearch_url: str = "http://localhost:9200"
+    # Set to false when using self-signed certs (e.g. local ES 8)
+    elasticsearch_verify_certs: bool = True
 
     # Celery / RabbitMQ (queue management)
     celery_broker_url: str = "amqp://guest:guest@localhost:5672//"

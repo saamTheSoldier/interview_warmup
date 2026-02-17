@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interview API – Mini UI</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1rem; background: #1a1a2e; color: #eee; }
+    h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+    section { background: #16213e; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    section h2 { margin: 0 0 0.5rem; font-size: 1rem; color: #aab; }
+    input, button, textarea { padding: 0.5rem; margin: 0.25rem 0.25rem 0.25rem 0; border-radius: 4px; border: 1px solid #333; background: #0f0f23; color: #eee; }
+    button { cursor: pointer; }
+    button:hover { background: #1a1a3e; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .status { font-size: 0.85rem; color: #8a8; margin-bottom: 0.5rem; }
+    .error { color: #e88; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list li { padding: 0.5rem; border-bottom: 1px solid #333; }
+    .list li:last-child { border-bottom: none; }
+    .badge { font-size: 0.75rem; background: #333; padding: 0.2rem 0.4rem; border-radius: 4px; margin-left: 0.5rem; }
+    a { color: #6af; }
+  </style>
+</head>
+<body>
+  <h1>Interview API – Mini UI</h1>
+  <p class="status" id="health">Health: checking…</p>
+
+  <section>
+    <h2>Auth</h2>
+    <div class="row">
+      <input type="email" id="email" placeholder="Email" size="20">
+      <input type="password" id="password" placeholder="Password" size="12">
+      <button id="btnLogin">Login</button>
+      <button id="btnRegister">Register</button>
+    </div>
+    <div class="row">
+      <input type="text" id="fullName" placeholder="Full name (for register)" size="15">
+    </div>
+    <p class="status" id="authStatus"></p>
+  </section>
+
+  <section>
+    <h2>Items (PostgreSQL + Redis cache + Celery→Elasticsearch)</h2>
+    <div class="row">
+      <input type="text" id="itemTitle" placeholder="Title" size="25">
+      <input type="text" id="itemDesc" placeholder="Description" size="30">
+      <input type="number" id="itemPrice" placeholder="Price cents" size="8" value="0">
+      <button id="btnAddItem">Add Item</button>
+    </div>
+    <div class="row">
+      <button id="btnLoadItems">Load / Refresh list</button>
+    </div>
+    <ul class="list" id="itemList"></ul>
+    <p class="status" id="itemsStatus"></p>
+  </section>
+
+  <section>
+    <h2>Search (Elasticsearch)</h2>
+    <div class="row">
+      <input type="text" id="searchQ" placeholder="Search in title, description…" size="35">
+      <button id="btnSearch">Search</button>
+    </div>
+    <ul class="list" id="searchResults"></ul>
+    <p class="status" id="searchStatus"></p>
+  </section>
+
+  <p style="font-size:0.85rem; color:#666;">
+    <a href="/docs">API Docs (Swagger)</a> ·
+    <a href="/metrics">Prometheus metrics</a>
+  </p>
+
+  <script>
+    const API = '/api/v1';
+    let token = localStorage.getItem('token') || '';
+    let currentUserId = parseInt(localStorage.getItem('userId'), 10) || null;
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (token) h['Authorization'] = 'Bearer ' + token;
+      return h;
+    }
+
+    async function checkHealth() {
+      try {
+        const r = await fetch(API + '/health');
+        const j = await r.json();
+        document.getElementById('health').textContent = 'Health: ' + (j.status === 'ok' ? 'OK' : j.status);
+      } catch (e) {
+        document.getElementById('health').textContent = 'Health: ERROR – ' + e.message;
+        document.getElementById('health').classList.add('error');
+      }
+    }
+    checkHealth();
+
+    async function parseJsonResponse(r) {
+      const text = await r.text();
+      try { return { json: JSON.parse(text), ok: true }; } catch (_) { return { json: null, text, ok: false }; }
+    }
+
+    document.getElementById('btnLogin').onclick = async () => {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const el = document.getElementById('authStatus');
+      try {
+        const r = await fetch(API + '/users/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const { json: j, text: respText } = await parseJsonResponse(r);
+        const msg = j ? (j.detail || (Array.isArray(j.detail) ? j.detail.map(x => x.msg || x.loc).join(', ') : 'Login failed')) : (respText || r.statusText);
+        if (r.ok && j) {
+          token = j.access_token;
+          currentUserId = j.user_id || null;
+          if (currentUserId) localStorage.setItem('userId', currentUserId);
+          localStorage.setItem('token', token);
+          el.textContent = 'Logged in. User ID ' + (currentUserId || '?') + '. Token saved.';
+          el.classList.remove('error');
+        } else {
+          el.textContent = msg;
+          el.classList.add('error');
+        }
+      } catch (e) {
+        el.textContent = e.message;
+        el.classList.add('error');
+      }
+    };
+
+    document.getElementById('btnRegister').onclick = async () => {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const full_name = document.getElementById('fullName').value.trim() || email.split('@')[0];
+      const el = document.getElementById('authStatus');
+      try {
+        const r = await fetch(API + '/users/register', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, full_name })
+        });
+        const { json: j, text: respText } = await parseJsonResponse(r);
+        const msg = j ? (j.detail || (Array.isArray(j.detail) ? j.detail.map(x => x.msg || x.loc).join(', ') : 'Register failed')) : (respText || r.statusText);
+        if (r.ok && j) {
+          el.textContent = 'Registered. Now login.';
+          el.classList.remove('error');
+        } else {
+          el.textContent = msg;
+          el.classList.add('error');
+        }
+      } catch (e) {
+        el.textContent = e.message;
+        el.classList.add('error');
+      }
+    };
+
+    document.getElementById('btnLoadItems').onclick = async () => {
+      const listEl = document.getElementById('itemList');
+      const statusEl = document.getElementById('itemsStatus');
+      try {
+        const r = await fetch(API + '/items?limit=50', { headers: headers() });
+        const items = await r.json();
+        if (!r.ok) throw new Error(items.detail || 'Failed');
+        listEl.innerHTML = items.length === 0
+          ? '<li>No items. Add one or run seed script.</li>'
+          : items.map(i => `<li><strong>${escapeHtml(i.title)}</strong> ${i.owner_email ? `<span class="badge">${escapeHtml(i.owner_email)}</span>` : ''} — ${i.price_cents}¢</li>`).join('');
+        statusEl.textContent = 'Loaded ' + items.length + ' items (from DB; hot ones from Redis cache).';
+        statusEl.classList.remove('error');
+      } catch (e) {
+        listEl.innerHTML = '';
+        statusEl.textContent = e.message;
+        statusEl.classList.add('error');
+      }
+    };
+
+    document.getElementById('btnAddItem').onclick = async () => {
+      const title = document.getElementById('itemTitle').value.trim();
+      const description = document.getElementById('itemDesc').value.trim();
+      const price_cents = parseInt(document.getElementById('itemPrice').value, 10) || 0;
+      const statusEl = document.getElementById('itemsStatus');
+      if (!title) { statusEl.textContent = 'Enter a title.'; statusEl.classList.add('error'); return; }
+      if (!token) { statusEl.textContent = 'Login first.'; statusEl.classList.add('error'); return; }
+      const ownerId = currentUserId || 1;
+      try {
+        const r = await fetch(API + '/items', {
+          method: 'POST', headers: headers(),
+          body: JSON.stringify({ title, description, price_cents, owner_id: ownerId })
+        });
+        const j = await r.json();
+        if (r.ok) {
+          statusEl.textContent = 'Item created (ID ' + j.id + '). Celery will index it in Elasticsearch.';
+          statusEl.classList.remove('error');
+          document.getElementById('itemTitle').value = '';
+          document.getElementById('itemDesc').value = '';
+          document.getElementById('btnLoadItems').click();
+        } else {
+          statusEl.textContent = (j.detail || 'Create failed') + (j.detail && j.detail.msg ? ' ' + j.detail.msg : '');
+          statusEl.classList.add('error');
+        }
+      } catch (e) {
+        statusEl.textContent = e.message;
+        statusEl.classList.add('error');
+      }
+    };
+
+    document.getElementById('btnSearch').onclick = async () => {
+      const q = document.getElementById('searchQ').value.trim();
+      const listEl = document.getElementById('searchResults');
+      const statusEl = document.getElementById('searchStatus');
+      if (!q) { statusEl.textContent = 'Enter search query.'; return; }
+      try {
+        const r = await fetch(API + '/search/items?q=' + encodeURIComponent(q) + '&limit=30', { headers: headers() });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.detail || 'Search failed');
+        listEl.innerHTML = (j.results || []).length === 0
+          ? '<li>No results (index may be empty or Celery worker not running).</li>'
+          : j.results.map(h => `<li><strong>${escapeHtml(h.title || '')}</strong> — ${escapeHtml((h.description || '').slice(0, 80))}…</li>`).join('');
+        statusEl.textContent = 'Found ' + (j.count || 0) + ' (Elasticsearch).';
+        statusEl.classList.remove('error');
+      } catch (e) {
+        listEl.innerHTML = '';
+        statusEl.textContent = e.message;
+        statusEl.classList.add('error');
+      }
+    };
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

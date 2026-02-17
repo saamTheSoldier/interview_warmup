@@ -1,32 +1,22 @@
 """
 Celery tasks - event-driven and async processing (job: queue management, event-driven).
 Challenge: Offload indexing, notifications, heavy computation from request path.
+Use sync Elasticsearch in worker; async + event_loop in fork causes "Event loop is closed".
 """
 
-import asyncio
-
 from app.queue.celery_app import celery_app
-from app.search.elasticsearch_client import index_item, ensure_items_index
-
-
-def _run_async(coro):
-    """Run async function from sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from app.search.elasticsearch_client import ensure_items_index_sync, index_item_sync
 
 
 @celery_app.task(bind=True, max_retries=3)
 def index_item_task(self, item_doc: dict):
     """
-    Index item in Elasticsearch asynchronously.
+    Index item in Elasticsearch.
     Fired after item create/update (event-driven: API publishes, worker consumes).
     """
     try:
-        _run_async(ensure_items_index())
-        ok = _run_async(index_item(item_doc))
+        ensure_items_index_sync()
+        ok = index_item_sync(item_doc)
         if not ok:
             raise Exception("Index failed")
     except Exception as exc:

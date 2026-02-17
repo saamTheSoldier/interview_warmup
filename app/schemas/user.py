@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class UserBase(BaseModel):
@@ -11,7 +11,8 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    # bcrypt accepts max 72 bytes; longer passwords cause 500. Validate here for clear 422.
+    password: str = Field(..., min_length=1, max_length=72)
 
 
 class UserResponse(UserBase):
